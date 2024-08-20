@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from shutil import copytree
 
 def download_file(url, filename):
     response = requests.get(url, stream=True)
@@ -13,26 +14,39 @@ def download_file(url, filename):
                 file.write(chunk)
     print(f"Downloaded {filename}")
 
-
 def run_command(command):
     process = subprocess.Popen(command, shell=True)
     process.wait()
     if process.returncode != 0:
         raise Exception(f"Command '{command}' failed with exit code {process.returncode}")
     
+import subprocess
+import sys
+
+def is_package_installed(package):
+    try:
+        # Check if the package is already installed
+        result = subprocess.run(['mpm', '--list'], capture_output=True, text=True)
+        return package in result.stdout
+    except subprocess.CalledProcessError:
+        return False
+
 def install_latex_packages():
-    # List of required LaTeX packages
+    # List of the packages required
     packages = ['raleway', 'moresize', 'fancyhdr', 'multirow']
     
-    # Iterate over the list and install each package using mpm
     for package in packages:
-        try:
-            print(f"Installing {package}...")
-            subprocess.check_call(['mpm', '--install=' + package])
-            print(f"{package} installed successfully.")
-        except subprocess.CalledProcessError:
-            print(f"Failed to install {package}. Please check if MiKTeX is installed and accessible.")
-            sys.exit(1)
+        if is_package_installed(package):
+            print(f"{package} is already installed. Skipping installation.")
+        else:
+            try:
+                print(f"Installing {package}...")
+                subprocess.check_call(['mpm', '--install=' + package])
+                print(f"{package} installed successfully.")
+            except subprocess.CalledProcessError:
+                print(f"Failed to install {package}. Please check if MiKTeX is installed and accessible.")
+                sys.exit(1)
+
 
 def check_file_exists(filename):
     return os.path.isfile(filename)
@@ -68,14 +82,13 @@ def compile_latex(latex_file, template_name):
     installer_filename = "basic-miktex-24.1-x64.exe"
     miktex_url = "https://miktex.org/download/ctan/systems/win32/miktex/setup/windows-x64/basic-miktex-24.1-x64.exe"
     
-    # Step 1: Download MiKTeX if not already downloaded
     if not check_file_exists(installer_filename):
         if not check_miktex_installed():
             print("MiKTeX installer not found. Downloading...")
             download_file(miktex_url, installer_filename)
     else:
         print("MiKTeX installer already downloaded.")
-    
+
     # Step 2: Install MiKTeX if not already installed
     if not check_miktex_installed():
         print("MiKTeX not found. Installing...")
@@ -106,6 +119,9 @@ def compile_latex(latex_file, template_name):
     # Path to the templates directory within the package
     template_dir = Path(__file__).resolve().parent / 'templates'
     template_path = template_dir / f"{template_name}.cls"
+    #find the font path
+    fonts_source_dir = Path(__file__).resolve().parent  / 'fonts'
+    
     
     # Check if the specified template exists
     if not template_path.is_file():
@@ -114,14 +130,25 @@ def compile_latex(latex_file, template_name):
     
     # Copy the template to the current directory
     temp_copy_path = Path(latex_file).stem + ".cls"
+    fonts_dest_dir = Path(latex_file).parent / 'fonts'
+
     if not check_file_exists(temp_copy_path):
         subprocess.run(f'copy "{template_path}" "{temp_copy_path}"', shell=True)
-     # if else
-    # Compile the LaTeX file
-    #run_command(f"pdflatex -jobname={Path(latex_file).stem} -synctex=1 -interaction=nonstopmode {latex_file}")
 
-    # Decide which LaTeX compiler to use based on the template name
-    if template_name == "temp3":
+    if not fonts_source_dir.is_dir():
+        print("Fonts directory not found.")
+        sys.exit(1)
+
+    # Copy the fonts directory to the location of the latex_file
+    if not fonts_dest_dir.exists():
+        copytree(fonts_source_dir, fonts_dest_dir)
+        print(f"Fonts directory copied to {fonts_dest_dir}")
+    else:
+        print(f"Fonts directory already exists at {fonts_dest_dir}")
+
+    
+     # Decide which LaTeX compiler to use based on the template name
+    if template_name == "minimal":
         latex_command = f"xelatex -interaction=nonstopmode {latex_file}"
     else:
         latex_command = f"pdflatex -jobname={Path(latex_file).stem} -synctex=1 -interaction=nonstopmode {latex_file}"
@@ -129,7 +156,6 @@ def compile_latex(latex_file, template_name):
     # Run the appropriate LaTeX compiler
     run_command(latex_command)
 def main():
-    
     if len(sys.argv) < 2 or len(sys.argv) > 3:
         print("Usage: latexgen <latex-file> [template-name]")
         sys.exit(1)
